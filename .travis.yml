@@ -1,0 +1,42 @@
+language: java
+jdk:
+  - openjdk17
+
+branches:
+  only:
+    - master
+    - coverity_scan
+
+notifications:
+  email:
+    recipients:
+      - NordeaOSSBuild@nordea.com
+    on_success: never
+    on_failure: always
+
+env:
+  global:
+   # COVERITY_SCAN_TOKEN
+   - secure: "DhqM82TzUguFAz8qyAX3AnFgSPZ5KQuNbHRZrapgCQUPyMXd25zHidhBPm4pxyYgrHyAKPDjOiSASNKQ7XVcdBj0c5cSpjQJHiukgH54r+GUvy8UsXGDRyp15oUeM13stxodvNEovc4+CBjHfWS9683jaU7wd3cGfZSs7N2P8azTqFvghEmkBlhXJeaVS1fBZEUtp1pwH1I1vTOvp5HR+8lblXgo7McJlC9h5Md8brhToXe5jAmisAE9m5i8ZlUzhU51RDwUf8RLPWvlR6/6lJaEpNpiN0cF30NvfIl2/cnR5TbBmOtAXmqcwwvm6alnooiKmeDO4EzdgeB5W7p61g864HmP/tiW3iNt93HT5phjZWaR+Hmlp7UwsoxX7PmriRnfywrTnqjzpb6BtpE10gsA3C+DsqnzvfIRIyS/+3TjHfdwVssv25jxm8lc+N9Yw01HusLFqwIeBxd7R5IsTURwLxIZgIQ0FbSXVDPLdPGyKHV4peB8SM27v6ADZ2cbDvGlSu1xlr+1K9yuia5xreTeowSWhwnYuI5Yyk9liWVj34KHB/Y2Uajk0lDsdq42n6MW0KVWl7p7FJenQNgp+vdj2UoLSnP0IhX43+RMpZGX5GfvyYggwG4w93MAk0tYtdk00jIyk2wagDUflljwIIJj1ikgmlrlNAkJkDNemW0="
+   # OSSRH_USER
+   - secure: "iZCjk9qrPOv4oQWz1aBP1BmR8xEcBYFf1yomK6OEFoBvPcVk3GHxfRqU3K74XVBAQIr2FNkD1PTlzrsFCag1HxbpdoUCa03Ir265kVrXaJM4RXPPiK1BYMeHsUMNRLIH+N5qtIgDYAEZ2bJhX3TDs65Jr6OosCfgG9DZMsVcfbu+DDPwixooYZecKlkSLLXzdL65T2K7Tg41Go/rRF8w1Dis36uORGLabYCuKN4/YX6X6hTkpEWGonLkGgnAT1Gy0WQAuZ4M+a1rI23Wf6sGVrF2Hiw4GDxgcZcSfflsRI1JqyzPMN9XXok/J16P4LB3hiIlPrOPOQh1nt8JuLZWkfGcXJMy1RtVveU251BIFIXNVSi+osddslTmk3k0NU3lcq9mmSDvSgLUkB29Ln003AyHgyvOpjLgjR8it9wTuhK8tUaNGQPEQM0IqZXcfANR7re/6V3xMbA89vvv/mnxdCSixaGBK3K+tF13Tc1Bw7hSLlbENFGDcWNl5KP5zJ5SMirt+TskOGPJ03jhrRLLkQePeMOK3rmXAOGd9/02Mmv9fSCHbZ95yImFiWphzkOXXj+rDMf5L8wYP7JYw889P0tQBXhn6DQo2YaotxMy+ksutFbMI+XcDX6/r0OZslxTjj0PqGrhIUIet9G+2VtHLvJMxHdR1CayoczBxPCwtgw="
+   # OSSRH_PASS
+   - secure: "RcJdwj9olcmbFW8OOmaKgtIkk+tWdM74TBbdp1NYVjFkWpO9UOpCPBOKdCbuexprhd8iDcBsMi8l0h+wrlXwtg5aAOVzzEe01ovgNtk9AILBzZo/evkTwqvPl56In9fmV0fEeWG+gstCtRYSMqt84/kBUT67MSzXgLY88Wxkh71eleQYKNN80MMwz4p0ZlLVlZnz0ZVAcf8W47fedeFl85psSP1RjDaZGs2rs0OMaFshebOeOdQHab9lBF8sVwfewhfIhw+FYm5latMzr3F2nC1FnYOSkZIRT90w+uzU/MJ5pvLfG+JZgC3kSwxsp+hE6t3Hr6O/zZ5g8GvMGKzcC+EPLxAtobTOAFa2z7S//ucXLH1VyjzeDq1OVRHgXAMvxwJvy4rLuiVXn9L7SY15StUAsgmqLemDoiE71XHPPmh/MZmabiG5cR0ryKqgMjVV68Eb3d34aD+twM2r1VhUyjp7jvxZrXLOjbhoFvclb0eDYKin1jAF5uvASi3FCGCzf2TEx7qfhh6keCGlAqsBNOqaU97Gon0py52tGYsdSrrvlzN9or5srvfvaiGSpHBrzPRbm+ZMbWaYvCq3+Th38o5qGAskktAlaFSl3+R7UGX1cgPg+Urc1z4Vr5MAS8N2zu0fLuEmR2Zp98Cofy2AW//0o1pX60pMX3jPl02np9Y="
+
+before_install:
+  - 'echo ${TRAVIS_TAG} - ${TRAVIS_PULL_REQUEST} - ${TRAVIS_BUILD_NUMBER}'
+  - 'if [ -z "${TRAVIS_TAG}" -a "${TRAVIS_PULL_REQUEST}" = "false" ]; then ./set_snapshot_version.sh; fi'
+
+after_success:
+  - 'echo Done building'
+  - 'if [ -z "${TRAVIS_TAG}" -a "${TRAVIS_PULL_REQUEST}" = "false" ]; then mvn deploy -DskipTests --settings travis-deploy.xml; fi'
+
+addons:
+  coverity_scan:
+    project:
+      name: "NordeaOSS/copybook4java"
+      description: "Build submitted via Travis CI"
+    notification_email: NordeaOSSBuild@nordea.com
+    build_command_prepend: "mvn clean"
+    build_command:   "mvn -DskipTests=true compile"
+    branch_pattern: coverity_scan

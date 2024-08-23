@@ -1,0 +1,417 @@
+<!DOCTYPE>
+<!--
+ ~ Copyright (c) 2015. Troels Liebe Bentsen <tlb@nversion.dk>
+ ~ Copyright (c) 2016. Nordea Bank AB
+ ~ Licensed under the MIT license (LICENSE.txt)
+-->
+
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Copybook to Java Class Converter</title>
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.css" />
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/theme/twilight.css" />
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/mode/clike/clike.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/addon/edit/matchbrackets.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/addon/selection/active-line.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/mode/cobol/cobol.js"></script>
+</head>
+<body>
+
+<div style="width: 100%">
+    <div style="float: left;">
+        <p>Copybook:</p>
+        <div>
+            <span>Status</span>
+            <span id="errormsg"></span>
+        </div>
+        <textarea id="copybook" name="copybook" cols="80" rows="50">
+                        * Comment stuff
+            01 SUBFIELD.  * Lineending comment
+                02 COUNT PIC 9(2).
+            * Comment stuff ...
+            01 RESULT. 
+                                                        * Comment stuff
+                02 FIELDS OCCURS 0 TO 10 TIMES PIC X(8) DEPENDING ON
+                                                        COUNT
+                                                        IN SUBFIELD. 
+            * Comment stuff
+            01 SUBFIELD2. 
+                02 COUNT1 PIC 9(2).
+                02 COUNT2 PIC 9(2).
+            01 FIELD PIC X(10).
+            01 STUFFS OCCURS 10 TIMES.
+                02 STUFF PIC X(8).
+        </textarea>
+    </div>
+
+    <div style="float: left;">
+        <p>Java Class:</p>
+        <div>
+            <span>Class Name</span>
+            <input id="wrapperclassname" type="text" value="MyCopyBook">
+            <span>Subclass</span>
+            <select id="subclass">
+                <option value="none">None</option>
+                <option value="nested">nested</option>
+            </select>
+            <span>Accessors</span>
+            <select id="accessorpattern">
+                <option value="none">None</option>
+                <option value="getset">Getter/setter</option>
+                <option value="public">Public</option>
+                <option value="package">Package</option>
+                <option value="getsetbuilder">Getter/setter & Builder</option>
+                <option value="publicbuilder">Public & Builder</option>
+                <option value="packagebuilder">Package & Builder</option>
+                <option value="lombokdata">Lombok Data</option>
+            </select>
+            <span>Charset</span>
+            <input id="charset" type="text" value="">
+        </div>
+
+        <textarea id="javaclass" name="javaclass"></textarea>
+    </div>
+    <br style="clear: left;"/>
+</div>
+
+<script type="application/javascript">
+
+    /*** convertCopybook start ***/
+    function convertCopybook (packageName, rootClassName, str, accessor, charset, subclass, wrapperClass) {
+        //print(rootClassName, accessor, charset, subclass, wrapperClass);
+        var fields = [];
+
+        (function parseCopybook(copybook) {
+            var last = [{ level: 0, fields: fields }];
+            copybook.replace(/\*[^\n]*/g, '').match(/[\s\S]+?\.[\s\t]*\n?/g).forEach(function(line, i) {
+                // Remove comments, newlines, extra space and trim
+                line = line.replace(/\s*\*[^\n]+\n/g, '').replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').replace(/^\s+/, '').replace(/\s+$/, '').toUpperCase();
+
+                if(match = line.match(/^\s*(\d+)\s+([^\s]+)((?:\s+OCCURS\s+\d+(?:\s+TO\s+\d+)?(?:\s+TIMES)?)|(?:\s+REDEFINES\s+[^\s]+))?(\s+PIC\s+[^\s]+)?(\s+DEPENDING\s+ON\s+[^\s]+(?:\s+IN\s+[^\s+]+)?)?\s*\.\s*$/i)) {
+                    var level = parseInt(match[1]);
+                    var name = match[2];
+
+                    var current = {
+                        name: name,
+                        level: level,
+                        lines: [ line ],
+                        fields: [],
+                        type: ''
+                    };
+
+                    if (match[4] != undefined) {
+                        if(pic_match = match[4].match(/^\s*PIC\s+(S)?(X+|9+)(?:\((\d+)\))?(?:V(9+)(?:\((\d+)\))?)?\s*$/)) {
+                            var signed = pic_match[1] !== undefined;
+                            var main_type = pic_match[2];
+                            var main_size = pic_match[3] !== undefined ? parseInt(pic_match[3]) : main_type.length;
+                            var decimal_type = pic_match[4] !== undefined ?  match[4] : "";
+                            var decimal_size = pic_match[5] != undefined ? parseInt(pic_match[5]) : decimal_type.length;
+
+                            if (main_type.indexOf("X") === 0) {
+                                current['type'] = "String";
+
+                            } else if (main_type.indexOf("9") === 0 && decimal_type !== '') { // Signed or unsigned decimal type
+                                current['type'] = "BigDecimal";
+
+                            } else if (main_type.indexOf("9") === 0 && decimal_type === '') { // Signed or unsigned integer type
+                                if(main_size < 10) {
+                                    current['type'] = "int";
+
+                                } else {
+                                    current['type'] = "BigInteger";
+                                }
+                            }
+
+                        }
+                    }
+
+                    if(match[3] != undefined) {
+                        if (occurs_match = match[3].match(/^\s*OCCURS\s+(?:(\d+)\s+TO\s+)?(\d+)(?:\s+TIMES)?\s*$/)) {
+                            current['type'] += "[]";
+
+                        } else if (redefines_match = match[3].match(/\s*REDEFINES\s+([^\s]+)\s*/)) {
+
+                        }
+                    }
+
+                    if(match[5] != undefined) {
+                        if(depending_match = match[5].match(/^\s*DEPENDING\s+ON\s+([^\s]+)(?:\s+IN\s+([^\s]+))?\s*$/)) {
+
+                        }
+                    }
+
+                    while(last.length > 0) {
+                        if(level > last[last.length - 1]['level']) {
+                            last[last.length - 1]['fields'].push(current);
+                            last.push(current);
+                            break;
+
+                        } else if (level === last[last.length - 1]['level']) {
+                            last[last.length - 2]['fields'].push(current);
+                            last[last.length - 1] = current;
+                            break;
+
+                        } else {
+                            last.pop();
+                        }
+                    }
+                } else {
+                    throw "Could not parse line :" + line;
+                }
+            });
+        }(str));
+
+        // Simplify structure
+        (function simplifyStructure(fields, parent, level) {
+            var types = 0;
+            fields.forEach(function(field, i){
+                if(field["type"] && field["type"] !== '[]') {
+                    types++;
+
+                } else if (field["fields"].length > 0) {
+                    types += simplifyStructure(field["fields"], field, level + 1);
+                }
+            });
+
+            if(level > 0 && types < 2) {
+                fields.forEach(function(field, i) {
+                    parent["name"] = parent["name"] + "." + field["name"];
+                    parent["lines"] = parent["lines"].concat(field["lines"]);
+                    parent["type"] = field["type"] ? field["type"] + (parent["type"] ? parent["type"] : '') : parent["type"];
+                });
+                parent["fields"] = [];
+            }
+
+            return types;
+        })(fields, fields, 0);
+
+        // Move everything up one level when we only have one field in the root
+        if(fields.length === 1 && !fields[0].type) {
+            if(!rootClassName) {
+                rootClassName = toCapitalCase(toCamelCase(fields[0]["name"].replace(".", "_")));
+            }
+            fields = fields[0]["fields"];
+
+        } else if (!rootClassName && wrapperClass) {
+            rootClassName = wrapperClass;
+        }
+
+        // Generate java class
+        var names = {};
+        var classes = [];
+        (function generateJavaClasses(rootClassName, fields, indentation, level) {
+            var currentClass = "";
+            var subclasses = "";
+
+            currentClass += " ".repeat(level * indentation) + "@CopyBook(" + (charset ? "charset = \""+ charset +"\"" : "") + ")\n";
+            currentClass += " ".repeat(level * indentation)
+                    + (accessor === "lombokdata" ? "@Data " : "")
+                    + "public "
+                    + (subclass === "nested" && level > 0 ? "static " : "")
+                    + "class "+ rootClassName + " {\n";
+
+            fields.forEach(function(field, i){
+                var java_name = toCamelCase(field["name"].replace(".", "_"));
+                var java_type = (!field["type"] || field["type"] === "[]") ?  toCapitalCase(java_name) + field["type"] : field["type"];
+                var accessorString = "private ";
+                if(accessor.match(/^public/)) { accessorString = "public "; }
+                if(accessor.match(/^package/)) { accessorString = ""; }
+
+                field["lines"].forEach(function(line, j) {
+                    currentClass += " ".repeat(level * indentation + indentation) + "@CopyBookLine(\"" + line + "\")\n";
+                });
+
+                if (field["fields"].length > 0) {
+                    currentClass += " ".repeat(level * indentation + indentation) + accessorString + (subclass !== "nested" ? rootClassName : "") + java_type + " " + java_name + ";\n";
+                    subclasses += generateJavaClasses((subclass !== "nested" ? rootClassName : "") + toCapitalCase(java_name), field["fields"], indentation, subclass === "nested" ? (level + 1) : level);
+
+                } else {
+                    currentClass += " ".repeat(level * indentation + indentation) + accessorString + java_type + " " + java_name + ";\n";
+                }
+
+                if(fields.length -1 > i) { currentClass += "\n"; }
+            });
+
+            if(accessor.match(/^getset|builder/)) {
+                currentClass += "\n";
+                fields.forEach(function (field, i) {
+                    var java_name = toCamelCase(field["name"].replace(".", "_"));
+                    var java_type = (!field["type"] || field["type"] === "[]") ?  toCapitalCase(java_name) + field["type"] : field["type"];
+
+                    if(accessor.match(/get/)) {
+                        currentClass += " ".repeat(level * indentation + indentation) + "public " + java_type + " get" + toCapitalCase(java_name) + "() {\n";
+                        currentClass += " ".repeat(level * indentation + indentation * 2) + "return this." + java_name + ";\n";
+                        currentClass += " ".repeat(level * indentation + indentation) + "}\n";
+                        currentClass += "\n";
+                    }
+
+                    currentClass += " ".repeat(level * indentation + indentation) + "public " + (accessor.match(/builder$/) ? rootClassName : "void") +" set" + toCapitalCase(java_name) + "(" + java_type + " " + java_name + ") {\n";
+                    currentClass += " ".repeat(level * indentation + indentation * 2) + "this." + java_name + " = " + java_name + ";\n";
+                    currentClass += accessor.match(/builder$/) ? (" ".repeat(level * indentation + indentation * 2) + "return this;\n") : "";
+                    currentClass += " ".repeat(level * indentation + indentation) + "}\n";
+
+                    if(fields.length -1 > i) { currentClass += "\n"; }
+                });
+            }
+
+            currentClass += subclasses;
+            currentClass += " ".repeat(level * indentation) + "}\n";
+
+            if(level > 0) {
+                return "\n" + currentClass;
+
+            } else {
+                classes.push(currentClass);
+            }
+
+            return "";
+        })(rootClassName, fields, 4, 0);
+        
+        if(packageName) {
+            classes = classes.map(function(currentClass, index) {
+                var header = "package " + packageName + ";\n\n"
+                        + "import com.nordea.oss.copybook.annotations.CopyBook;\n"
+                        + "import com.nordea.oss.copybook.annotations.CopyBookLine;\n";
+                header += (currentClass.indexOf("BigInteger") > 0 ? "import java.math.BigInteger;\n" : "");
+                header += (currentClass.indexOf("BigDecimal") > 0 ? "import java.math.BigDecimal;\n" : "");
+                return header + "\n" + currentClass;
+            });
+        }
+
+        return classes;
+    }
+
+    function toCamelCase(str) {
+        return str.toLocaleLowerCase().replace(/([\-_]\w)/g, function(m){ return m[1].toUpperCase(); });
+    }
+
+    function toCapitalCase(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1)
+    }
+
+    function toClassName(str) {
+        return toCapitalCase(toCamelCase(str.replace(".", "_")));
+    }
+
+    // Polyfill
+    if (!String.prototype.repeat) {
+        String.prototype.repeat = function(count) {
+            'use strict';
+            if (this == null) {
+                throw new TypeError('can\'t convert ' + this + ' to object');
+            }
+            var str = '' + this;
+            count = +count;
+            if (count != count) {
+                count = 0;
+            }
+            if (count < 0) {
+                throw new RangeError('repeat count must be non-negative');
+            }
+            if (count == Infinity) {
+                throw new RangeError('repeat count must be less than infinity');
+            }
+            count = Math.floor(count);
+            if (str.length == 0 || count == 0) {
+                return '';
+            }
+            // Ensuring count is a 31-bit integer allows us to heavily optimize the
+            // main part. But anyway, most current (August 2014) browsers can't handle
+            // strings 1 << 28 chars or longer, so:
+            if (str.length * count >= 1 << 28) {
+                throw new RangeError('repeat count must not overflow maximum string size');
+            }
+            var rpt = '';
+            for (;;) {
+                if ((count & 1) == 1) {
+                    rpt += str;
+                }
+                count >>>= 1;
+                if (count == 0) {
+                    break;
+                }
+                str += str;
+            }
+            // Could we try:
+            // return Array(count + 1).join(this);
+            return rpt;
+        }
+    }
+    /*** convertCopybook stop ***/
+</script>
+
+<script type="application/javascript">
+    function updateEditor(srcEditor, dstEditor) {
+        var subclassSelector = document.getElementById("subclass");
+        var subclass = subclassSelector.options[subclassSelector.selectedIndex].value;
+        var accessorSelector = document.getElementById("accessorpattern");
+        var accessor = accessorSelector.options[accessorSelector.selectedIndex].value;
+        var charset = document.getElementById("charset").value;
+        var wrapperClassName = document.getElementById("wrapperclassname").value;
+
+        var errormsg = document.getElementById("errormsg");
+        errormsg.textContent = "";
+        errormsg.style.backgroundColor = "transparent";
+
+        var src = srcEditor.getValue();
+        try {
+            var classes = convertCopybook(undefined, undefined, src, accessor, charset, subclass, wrapperClassName);
+            var dst = classes.join("\n");
+            dstEditor.setValue(dst);
+            dstEditor.refresh();
+        } catch (ex) {
+            errormsg.textContent = ex;
+            errormsg.style.backgroundColor = "red";
+        }
+    }
+
+    $(function() {
+        var javaEditor = CodeMirror.fromTextArea(document.getElementById("javaclass"), {
+            lineNumbers: true,
+            matchBrackets: true,
+            mode: "text/x-java",
+            viewportMargin: Infinity
+        });
+        javaEditor.setSize(null, 750);
+
+        var cobolEditor = CodeMirror.fromTextArea(document.getElementById("copybook"), {
+            lineNumbers: true,
+            matchBrackets: true,
+            mode: "text/x-cobol",
+            viewportMargin: Infinity,
+            styleActiveLine: true,
+            theme : "twilight",
+            showCursorWhenSelecting : true
+        });
+
+        cobolEditor.setSize(null, 750);
+        cobolEditor.on("change", function (cm) {
+            updateEditor(cm, javaEditor);
+        });
+
+        $("#wrapperclassname").change(function() {
+            updateEditor(cobolEditor, javaEditor);
+        });
+
+        $("#charset").change(function() {
+            updateEditor(cobolEditor, javaEditor);
+        });
+
+        $("#accessorpattern").change(function() {
+            updateEditor(cobolEditor, javaEditor);
+        });
+
+        $("#subclass").change(function() {
+            updateEditor(cobolEditor, javaEditor);
+        });
+
+        updateEditor(cobolEditor, javaEditor);
+    });
+  </script>
+
+</body>
+</html>
